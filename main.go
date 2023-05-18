@@ -11,79 +11,108 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
-
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/gofrs/uuid"
 )
 
 // exit channel
 var c = make(chan os.Signal, 1)
 
+type Metadata struct {
+	Timestamp  int64  `json:"timestamp"`
+	ServerName string `json:"server_name"`
+}
+
 type Message struct {
-	Name   string `json:"name"`
-	Status int    `json:"status"`
+	Status   int      `json:"status"`
+	Metadata Metadata `json:"metadata"`
 }
 
 // struct object of Mqtt
-type Mqtt struct {
-	client   mqtt.Client
-	username string
-	password string
-	broker   string
-	port     int
+type Publisher struct {
+	url           string
+	Broker        string
+	Port          int
+	StreamId      string
+	ClientName    string
+	Authorization string
+	mode          string
 }
 
 // init function of Mqtt struct
-func (m *Mqtt) init(username, password, broker string, port int) {
-	mqtt.DEBUG = log.New(os.Stdout, "", 0)
-	mqtt.ERROR = log.New(os.Stdout, "", 0)
-
-	// generate uuid for client id
-	clientId := uuid.Must(uuid.NewV4()).String()
-	opts := mqtt.NewClientOptions().AddBroker(fmt.Sprintf("tcp://%s:%d", broker, port)).SetClientID(clientId)
-	opts.SetUsername(username)
-	opts.SetPassword(password)
-	opts.SetKeepAlive(0 * time.Second)
-	opts.SetPingTimeout(0 * time.Second)
-
-	// create a new instance of mqtt client
-	m.client = mqtt.NewClient(opts)
-	if token := m.client.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
-
-	m.username = username
-	m.password = password
-	m.broker = broker
-	m.port = port
+func (h *Publisher) init(broker string, port int, streamId, ClientName, Auth string) {
+	h.url = fmt.Sprintf("http://%s:%d/streams/%s", broker, port, streamId)
+	h.Broker = broker
+	h.Port = port
+	h.StreamId = streamId
+	h.ClientName = ClientName
+	h.Authorization = Auth
+	h.mode = GetEnv("HTTP_MODE", "production")
 }
 
-// NewMqtt function
-func NewMqtt() *Mqtt {
-	// as of streamr allow any username, we'll set username as server name
-	username := GetEnv("MQTT_USERNAME", "server")
-	// get password from environment variable
-	password := GetEnv("MQTT_PASSWORD", "password")
-	// get broker from environment variable
-	broker := GetEnv("MQTT_BROKER", "localhost")
-	// get port from environment variable
-	port := GetEnvAsInt("MQTT_PORT", 1883)
+// function to publish data to http
+func (h *Publisher) Publish() {
+	meta := Metadata{time.Now().Unix(), h.ClientName}
+	msg := Message{1, meta}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("error marshall msg: %v\n", err)
+		return
+	}
+	// send post request to http
+	req, err := http.NewRequest("POST", h.url, bytes.NewBuffer(data))
+	if err != nil {
+		log.Printf("error: %v\n", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("bearer %s", h.Authorization))
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	// resp, err := http.Post(h.url, "application/json", bytes.NewBuffer(data))
 
-	// create a new instance of mqtt
-	mqtt := &Mqtt{}
-	// init the mqtt
-	mqtt.init(username, password, broker, port)
+	if h.mode == "debug" {
+		fmt.Printf("init: publishing to %v\n", h.url)
+		fmt.Printf("resp.Body: %d\n", resp.StatusCode)
+	}
+	if err != nil {
+		log.Printf("error: %v\n", err)
+		resp.Body.Close()
+		return
+	}
+}
+
+// NewPublisher function
+func NewPublisher() *Publisher {
+	// get broker from environment variable
+	broker := GetEnv("HTTP_BROKER", "localhost")
+	// get port from environment variable
+	port := GetEnvAsInt("HTTP_PORT", 7171)
+	// get stream id from environment variable
+	// streamId := strings.ReplaceAll(url.QueryEscape(GetEnv("HTTP_STREAM_ID", "mqtt")), "%2F", "/")
+	streamId := url.QueryEscape(GetEnv("HTTP_STREAM_ID", "mqtt"))
+	// get client name from environment variable
+	clientName := GetEnv("HTTP_CLIENT_NAME", "mqtt")
+	// get authorization from environment variable
+	auth := GetEnv("HTTP_AUTH", "dummy")
+
+	// create a new instance of HTTP
+	p := &Publisher{}
+
+	// init the http
+	p.init(broker, port, streamId, clientName, auth)
 
 	// return the mqtt
-	return mqtt
+	return p
 }
 
 // function to get environment variable as integer
@@ -124,9 +153,7 @@ func cleanup(msg string) {
 // main function
 func main() {
 	// create a new instance of mqtt
-	q := NewMqtt()
-	topic := GetEnv("MQTT_TOPIC", "mqtt")
-	// fmt.Println(mqtt)
+	q := NewPublisher()
 
 	// wait for exit signal
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -138,18 +165,8 @@ func main() {
 	}()
 
 	for {
-		time.Sleep(5 * time.Second)
-		fmt.Println("1")
-		if q.client.IsConnected() {
-			msg := Message{q.username, 1}
-			payload, _ := json.Marshal(msg)
-			token := q.client.Publish(topic, 0, false, payload)
-			if token.Wait() {
-				fmt.Println("published")
-			} else {
-				break
-			}
-		}
+		time.Sleep(1 * time.Second)
+		q.Publish()
 	}
 
 	// loop in a thread
@@ -194,7 +211,3 @@ func main() {
 // func NewApp(server, signal, logger, config invalid type) {
 // 	panic("unimplemented")
 // }
-
-func NewHeartbeat(mqtt *Mqtt) {
-	panic("unimplemented")
-}
