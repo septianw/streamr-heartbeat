@@ -29,4 +29,5 @@ else
     exit 1
 fi
 
-go build -o bin/$(basename $PWD)_$GOOS$GOARCH
+go build -ldflags "-s -w -linkmode internal -extldflags -static" -o bin/$(basename $PWD)_$GOOS-$GOARCH
+upx --brute -9 bin/$(basename $PWD)_$GOOS-$GOARCH

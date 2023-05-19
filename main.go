@@ -169,45 +169,5 @@ func main() {
 		q.Publish()
 	}
 
-	// loop in a thread
-	// for {
-	// 	// check the status of the server
-	// 	// if the server is running, send 1 to mqtt+.0
-
-	// 	// if the server is not running, send 0 to mqtt
-	// 	// send the status to mqtt
-	// 	// sleep for 5 seconds
-	// 	time.Sleep(5 * time.Second)
-	// }
-
-	// create a new instance of heartbeat
-	// heartbeat := NewHeartbeat(mqtt)
-
-	// create a new instance of server
-	// server := NewServer(heartbeat)
-
-	// create a new instance of signal
-	// signal := NewSignal()
-
-	// create a new instance of logger
-	// logger := NewLogger()
-
-	// create a new instance of config
-	// config := NewConfig()
-
-	// create a new instance of app
-	// app := NewApp(server, signal, logger, config)
-
-	// start the application
-	// app.Start()
-
-	// wait for the signal
-	// signal.WaitForSignal()
-
-	// stop the application
-	// app.Stop()
 }
 
-// func NewApp(server, signal, logger, config invalid type) {
-// 	panic("unimplemented")
-// }
